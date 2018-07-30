@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# if you want to test your MPI installation please uncomment the relavent lines below
+
+rm -fr result1 result2 result3
+
+#time mpirun -np 3 ../bin/2pcf -gal test.gal -ran test.ran -rmin 1.0 -rmax 20.0 -nbins 5 -out result1 -wgt .true.
+time ../bin/2pcf -gal test.gal -ran test.ran -rmin 1.0 -rmax 20.0 -nbins 5 -out result1 -wgt .true.
+echo '****************************************************'
+echo '*  test-1 complete. check results in file result1  *'
+echo '****************************************************'
+
+#time mpirun -np 2 ../bin/2pcf -gal test.gal -ran test.ran -rmax 15.0 -nbin6 6 -out result2 -iso ANISO -decp SIGPI 
+time ../bin/2pcf -gal test.gal -ran test.ran -rmax 15.0 -nbins 6 -out result2 -iso ANISO -decp SIGPI 
+echo '****************************************************'
+echo '*  test-2 complete. check results in file result2  *'
+echo '****************************************************'
+
+#time mpirun -np 2 ../bin/2pcf -gal test.gal -ran test.gal -rmax 15.0 -nbins 6 -tbins 2 -out result3 -iso ANISO -decp SMU -wgt .true.
+time ../bin/2pcf -gal test.gal -ran test.ran -rmax 15.0 -nbins 6 -tbins 2 -out result3 -iso ANISO -decp SMU -wgt .true.
+echo '****************************************************'
+echo '*  test-3 complete. check results in file result3  *'
+echo '****************************************************'
+
+
+#time mpirun -np 2 ../bin/3pcf -gal test.gal -ran test.ran -r1min 7 -r1max 8 -r2min 5 -r2max 6 -nbins 8 -wgt .true. -out result4
+time ../bin/3pcf -gal test.gal -ran test.ran -r1min 7 -r1max 8 -r2min 5 -r2max 6 -nbins 8 -wgt .true. -out result4
+echo '****************************************************'
+echo '*  test-4 complete. check results in file result4  *'
+echo '****************************************************'

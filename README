@@ -1,0 +1,233 @@
+-----------------------------------------------
+- KD-tree Statistics Package
+-----------------------------------------------
+- Cristiano G. Sabiu (csabiu-at-gmail.com)
+-----------------------------------------------
+
+Contents: 
+	 0) Intro
+
+	 1) Programs
+  		a) 2pcf
+	   	b) 3pcf
+		c) 3pcf_eq
+
+	 2) Examples
+	 
+	 3) Issues
+_____________________________________________________________________________
+
+0) Intro
+
+I present some correlation codes for calculating some interesting quantities.
+These include the two-point correlation function in 2 and 3-dimensions, the 
+anisotripic 2PCF decomposed in either sigma-pi or Kazin's dist. mu projection.
+
+I created these codes as I have found it difficult in the past find similar ones 
+freely available in the pubilc domain. I hope to keep developing them, so please 
+send me bug fixes,suggestions, comments/critisims to csabiu@gmail.com
+
+Depending on how useful these algorithms are for you, payback is accpeted in 
+the form of co-authorship, aknowledgments or just beer is fine too ;)
+_____________________________________________________________________________
+
+1) Programs
+
+This is a collection of programs for calculating 
+correlation functions 
+
+     -----------------
+a)   **    2pcf     **
+     -----------------
+
+PURPOSE: Code for calculating the 2PCF of a 2D (projected) or full 3D point set. 
+         In either isotropic or anisotropic modes.
+        - The anisotropic decomposition is done in either distance,mu space - Ie Clustering wedges
+        - See Kazin etal 2013 http://arxiv.org/abs/1303.4391 for details
+        - OR decomposition can be done in sigma,pi space.
+        - For now binning is symentric in sigma and pi (will be altered later)
+
+CALLING SEQUENCE:
+      2pcf [-gal gal_file] [-ran ran_file] [-out out_file] [-wgt WGT]
+           [-iso ISO] [-decp DECOMP][-rmin Rmin] [-rmax Rmax] [-nbins Nbins]
+           [-log LOG] [-proj PROJ] [-RR RR_counts] [-err ERR] [-nerr NERR]
+	   [-mkd MKD]
+ 
+      eg: 2pcf -gal dr9.gal -ran dr9.ran -rmin 1.0 -rmax 100.0 -nbins 20
+ 
+INPUTS:
+       gal_file/ranfile = strings containing the name of a 3/4 column point file
+                 lines 1-3: XYZ comoving, optional 4: weight  
+             OR  lines 1-2: RA,DEC(degs), optional 3: weight  
+
+       out_file = filename for output correlation func. Columns include min/max bin definitions
+                  the normalised pair counts (DD,DR,RR) and the correlation function estimators.
+   
+       Rmin = Min. radial seperation (in units of input catalogue)
+              Rmin is fixed = 0 for anisotropic SIGMA-PI decomposition. May change in future release.
+ 
+       Rmax = Max. radial seperation (in units of input catalogue)
+ 
+OPTIONAL:
+       Nbins  = Number of radial bins to calculate. Default is 1.
+                In the anisotripic SIGMA-PI case, this will be the number of bins in both axes
+ 
+       NTbins = Number of theta/angualr bins to calculate, only if usnig -decmp SMU in anisotropic case
+ 
+       PROJ   = Logical, if true then do 2D angular correlations. Data must be RA,DEC in degs.
+                Possible values: .true.  OR  .false.
+ 
+       WGT    = logical value to define if weights are to be included
+                Possible values: .true.  OR  .false.
+                In this case, the input gal/ran files should be 4 columns
+ 
+       LOG    = Logical to define if bins should be logarithmically spaced
+                Possible values: .true.  OR  .false.
+
+       ISO    = Flag for either istoropic (ISO) or anisotropic (ANISO) clustering. If ANISO, choose
+                decomposition method using -decp flag shown below.
+
+       DECOMP = Decomposition of the anisotropic pair binning. SIGPI for the usual sigma-pi
+                or SMU for s-mu seperation, where is the pair distance and mu is the cosine
+                of the angle between the vector to gal1 and the connecting vector between 
+                the galaxies.
+
+    RR_Counts = string containing the name of a file regarding RR data counts.
+                If file exists, then the RR counting will be skipped (saveing CPU time).
+                If it does not exist, the file will be created for future use.
+                Consider using this option if you are doing Monte Carlo runs with same 
+                random catalogue and binning scheme.
+
+         ERR  = The error treatment, "boot" will create bootstrap samples and use them to construct 
+                a covariance estimation. "jack" will create jackknife samples (NOT IMPLEMENTED YET)
+                "read" will read the error subsample from the data, expected last column (integer!)
+ 
+        NERR  = Number of jackknife or bootstrap samples to create. Covariance and correlation 
+                coefficients contained within the file covariance.out
+
+        MKD    = Logical to define if marked statistics should be used.
+                 Possible values: .true.  OR  .false.
+
+       -------------
+b)     **  3pcf   **
+       -------------
+
+PURPOSE: Code for calculating the 3PCF of a 3D point set.
+         - At the moment only 1 binning scheme is available.
+         - You specify 2 sides and the 3rd is varied automatically in the code
+         - This will be generalies in a future release.
+
+CALLING SEQUENCE:
+      3pcf [-gal gal_file] [-ran ran_file] [-out out_file] [-wgt WGT]
+           [-r1min Rmin1] [-r1max Rmax1] [-r2min Rmin2] [-r2max Rmax2]
+           [-nbins Nbins] [-RR RR_counts]
+ 
+      eg: 3pcf -gal dr9.gal -ran dr9.ran -r1min 10.0 -r1max 12.0 -r2min 5.0 -r2max 6.0 -nbins
+ 
+INPUTS:
+       gal_file/ranfile = strings containing the name of a 3/4 column point file
+                 lines 1-3: XYZ comoving, optional 4: weight 
+   
+       out_file = filename for output correlation func.
+   
+       Rmin = Min. radial seperation
+   
+       Rmax = Max. radial seperation
+ 
+OPTIONAL:
+      Nbins = Number of radial bins to calculate zeta. The 3rd side of the triangle is
+              varied from theta=0-180 deg in Nbins spaced equally in cos(theta)
+  
+        WGT = logical value to define if weights are to be included
+              Possible values: .true.  OR  .false.
+              In this case, the input gal/ran files should be 4 columns
+
+ RR_Counts = string containing the name of a file regarding RR data counts.
+             If file exists, then the RR counting will be skipped (saveing CPU time).
+             If it does not exist, the file will be created for future use.
+             Consider using this option if you are doing Monte Carlo runs with same 
+             random catalogue and binning scheme.
+
+       -------------
+c)     ** 3pcf_eq **
+       -------------
+
+PURPOSE: Code for calculating the 3PCF of a 3D point set, in equilateral configuration.
+         - At the moment only 1 binning scheme is available.
+         - You specify the minimum and maximum sides of the triangle and the number 
+	 - of bins this should be divided into.
+
+CALLING SEQUENCE:
+      3pcf_eq [-gal gal_file] [-ran ran_file] [-out out_file] [-wgt WGT]
+           [-rmin Rmin] [-rmax Rmax] [-nbins Nbins] [-RSD RSD] [-nmu Nmu]
+ 
+      eg: 3pcf_eq -gal dr9.gal -ran dr9.ran -rmin 10.0 -rmax 12.0 -nbins 4 -RSD .true. -nmu 5
+ 
+INPUTS:
+       gal_file/ranfile = strings containing the name of a 3/4 column point file
+                 lines 1-3: XYZ comoving, optional 4: weight 
+   
+       out_file = filename for output correlation func.
+   
+       Rmin = Min. radial seperation
+   
+       Rmax = Max. radial seperation
+ 
+OPTIONAL:
+      Nbins = Number of radial bins to calculate zeta.
+
+      Nmu   = Number of angular bins when in anisotropic mode.
+  
+        WGT = logical value to define if weights are to be included
+              Possible values: .true.  OR  .false.
+              In this case, the input gal/ran files should be 4 columns
+
+        RSD = logical value to request anisotropic analysis.
+               In this case the number of angular bins Nmu should be set
+
+    **************
+2)  ** EXAMPLES **
+    **************
+
+In the folder "kstat/examples" you will find a data and random catalogues. 
+They contains XYZ commoving coords, plus a weight column.
+To get a feel for the codes, please run the following command from the 
+examples folder.
+
+./test.script
+
+The testing script runs three examples detailed below. 
+
+------------------------------------------------------------------------
+
+Example 1) 
+
+In this example we calculate the 3D - isotropic 2-point correlation function 
+from 1Mpc -> 20Mpc in 5 equally spaced bins. It also conciders the galaxy and random weights.
+
+../bin/2pcf -gal test.gal -ran test.ran -rmin 1.0 -rmax 20.0 -nbins 5 -out result1 -wgt .true.
+
+
+Example 2)
+
+In this example we calculate the anisotropic 2-point correlation function decomposed into 
+the usual sigma (perpendicular) and pi (parallel) space. This is done in 10x10 bins from 0Mpc
+to 100Mpc in each coordinate.
+
+../bin/2pcf -gal test.gal -ran test.gal -rmax 100.0 -nrbin 10 -out result2 -iso ANISO -decp SIGPI
+
+Example 3)
+
+In this example we look at the 3-point correlation function with the triangular configuration 
+7Mpc<r1<8Mpc, 5Mpc<r2<6Mpc, and the 3rd side is explored in 8 bins equally spaced in cos(theta).
+
+../bin/3pcf -gal test.gal -ran test.ran -r1min 7 -r1max 8 -r2min 5 -r2max 6 -nbins 8 -wgt .true. -out result3
+
+
+    **************
+3)  ** ISSUES **
+    **************
+
+a) During openmpi runs I find that passing the following mpi arguments prevents the code from falling over:
+   sabiuc@[~/]:mpirun -np 64 --mca btl mx,sm,self --mca mtl ^mx ./2pcf .......
+

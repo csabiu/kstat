@@ -1,0 +1,16 @@
+This is mostly a stand-alone package. 
+It prefers gfortran and if you need MPI, then it
+also likes OpenMPI
+
+from the command line type:
+-----------
+cd src
+make all
+-----------
+
+The executable are stored in the folder called bin.
+
+ISSUES:
+
+
+
