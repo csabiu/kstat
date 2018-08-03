@@ -105,7 +105,7 @@ if(myid==master) print*,'Calculating the anisotropic correlation function decomp
 
 if(resample) then 
     if(readjk) then
-        continue   
+        continue 
     else
         call bootstrapper()
     endif
@@ -1163,9 +1163,17 @@ subroutine read_files ()
 
     if(proj) then
       if ( wgt ) then
-       read(11,*,err=32,end=23)aux1,aux2,wgt1(i)
+          if (readjk) then
+          read(11,*,err=32,end=23)aux1,aux2,wgt1(i),boot(i)
+          else
+          read(11,*,err=32,end=23)aux1,aux2,wgt1(i)
+          endif
       else
-       read(11,*,err=32,end=23)aux1,aux2
+          if (readjk) then
+          read(11,*,err=32,end=23)aux1,aux2,boot(i)
+          else
+          read(11,*,err=32,end=23)aux1,aux2
+          endif
        wgt1(i)=1.0
       endif
       call sph2cart(1.0_kdkind,aux1,aux2,my_array(1,i),my_array(2,i),my_array(3,i))
@@ -1193,6 +1201,9 @@ subroutine read_files ()
   enddo
 23 close(11)
   if(myid==0)  print*,'Finished reading data file 2'  
+
+print*,'max resmaple:',maxval(boot)
+print*,'min resmaple:',minval(boot)
 
 !!if(wgt) then
 !!    wgt1=wgt1/1000.d0
@@ -1573,10 +1584,10 @@ implicit none
     drn=0.d0
     rr=0.d0
 
-    if(.not.wgt) then
-        allocate(wgt1(Ndata+Nrand))
-        wgt1=1.0
-    endif
+    !if(.not.wgt) then
+    !    allocate(wgt1(Ndata+Nrand))
+    !    wgt1=1.0
+    !endif
 
     print*,'gathering resamples'
     do i=1,Nresample
