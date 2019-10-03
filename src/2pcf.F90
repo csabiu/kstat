@@ -1202,8 +1202,10 @@ subroutine read_files ()
 23 close(11)
   if(myid==0)  print*,'Finished reading data file 2'  
 
-print*,'max resmaple:',maxval(boot)
-print*,'min resmaple:',minval(boot)
+if (readjk) then
+  print*,'max resmaple:',maxval(boot)
+  print*,'min resmaple:',minval(boot)
+endif
 
 !!if(wgt) then
 !!    wgt1=wgt1/1000.d0
