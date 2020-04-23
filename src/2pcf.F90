@@ -143,7 +143,7 @@ chunk=floor(float(Ndata)/ntasks)+1
 
 if(myid==master) print*,'Code running with ',ntasks,' MPI processes each with ',threads,' OMP threads'
 
-!$OMP PARALLEL DO schedule(dynamic)  private(i,j,nn1,nn2,k,resultsb) & ! , 
+!$OMP PARALLEL DO schedule(dynamic)  private(i,j,nn1,nn2,k,resultsb,v2,sig,pi,sigbin,pibin,bin) & ! , 
 !$OMP& shared(tree,wgt1,Nrand,Ndata,chunk,myid)&
 !$OMP& reduction(+:Zdd,Zdr)
 do i=max(myid*chunk,1),min(((myid+1)*chunk)-1,Ndata),1
@@ -226,7 +226,7 @@ print*,'beginning RR loop on thread:',myid
 
 
 chunk=floor(float(Nrand)/ntasks)+1
-!$OMP PARALLEL DO schedule(dynamic) private(i,j,nn1,nn2,k,resultsb) & ! , 
+!$OMP PARALLEL DO schedule(dynamic) private(i,j,nn1,nn2,k,resultsb,v2,sig,pi,sigbin,pibin,bin) & ! , 
 !$OMP& shared(tree,wgt1,Nrand,Ndata,chunk,myid)&
 !$OMP& reduction(+:Zrr)  
 do i=Ndata+max(myid*chunk,1),Ndata+min(((myid+1)*chunk)-1,Nrand),1
@@ -404,7 +404,7 @@ chunk=floor(float(Ndata)/ntasks)+1
 
 if(myid==master) print*,'Code running with ',ntasks,' MPI processes each with ',threads,' OMP threads'
 
-!$OMP PARALLEL DO schedule(dynamic)  private(i,j,nn1,nn2,k,resultsb) & ! , 
+!$OMP PARALLEL DO schedule(dynamic)  private(i,j,nn1,nn2,k,resultsb,v1,v2,dist,v3,v4,theta,tbin,bin) & ! , 
 !$OMP& shared(tree,wgt1,Nrand,Ndata,chunk,myid)&
 !$OMP& reduction(+:Zdd,Zdr) 
 do i=max(myid*chunk,1),min(((myid+1)*chunk)-1,Ndata),1
@@ -487,7 +487,7 @@ endif
 print*,'beginning RR loop on thread:',myid
 
 chunk=floor(float(Nrand)/ntasks)+1
-!$OMP PARALLEL DO schedule(dynamic) private(i,j,nn1,nn2,k,resultsb) & ! , 
+!$OMP PARALLEL DO schedule(dynamic) private(i,j,nn1,nn2,k,resultsb,v1,v2,dist,v3,v4,theta,tbin,bin) & ! , 
 !$OMP& shared(tree,wgt1,Nrand,Ndata,chunk,myid)&
 !$OMP& reduction(+:Zrr) 
 do i=Ndata+max(myid*chunk,1),Ndata+min(((myid+1)*chunk)-1,Nrand),1
@@ -1071,8 +1071,8 @@ subroutine default_params()
   outfile='result.txt'
   nbins=1
   ntbin=1
-  rmin=0
-  rmax=0
+  rmin=0.0
+  rmax=0.0
   Nresample=1
   ISOFLAG='ISO'
   readjk=.false.
