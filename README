@@ -51,9 +51,10 @@ CALLING SEQUENCE:
       2pcf [-gal gal_file] [-ran ran_file] [-out out_file] [-wgt WGT]
            [-iso ISO] [-decp DECOMP][-rmin Rmin] [-rmax Rmax] [-nbins Nbins]
            [-log LOG] [-proj PROJ] [-RR RR_counts] [-err ERR] [-nerr NERR]
-	   [-mkd MKD]
- 
+           [-njk NJK] [-mkd MKD]
+
       eg: 2pcf -gal dr9.gal -ran dr9.ran -rmin 1.0 -rmax 100.0 -nbins 20
+      eg: 2pcf -gal dr9.gal -ran dr9.ran -rmin 1.0 -rmax 100.0 -nbins 20 -err jack -njk 3
  
 INPUTS:
        gal_file/ranfile = strings containing the name of a 3/4 column point file
@@ -98,12 +99,18 @@ OPTIONAL:
                 Consider using this option if you are doing Monte Carlo runs with same 
                 random catalogue and binning scheme.
 
-         ERR  = The error treatment, "boot" will create bootstrap samples and use them to construct 
-                a covariance estimation. "jack" will create jackknife samples (NOT IMPLEMENTED YET)
-                "read" will read the error subsample from the data, expected last column (integer!)
- 
-        NERR  = Number of jackknife or bootstrap samples to create. Covariance and correlation 
-                coefficients contained within the file covariance.out
+         ERR  = The error treatment method for covariance estimation:
+                "boot" - create bootstrap samples using random assignment
+                "jack" - create jackknife samples using spatial partitioning
+                "read" - read error subsample IDs from the data file (last column, integer)
+
+        NERR  = Number of bootstrap samples to create (only used with -err boot).
+                Covariance and correlation coefficients are output to covariance.out
+
+         NJK  = Number of jackknife divisions per dimension (only used with -err jack).
+                Total regions = NJK^D where D is dimensionality (2 for proj, 3 otherwise).
+                Default is 3, giving 27 regions for 3D or 9 regions for 2D.
+                Example: -njk 4 creates 64 jackknife regions for 3D data.
 
         MKD    = Logical to define if marked statistics should be used.
                  Possible values: .true.  OR  .false.
@@ -210,7 +217,7 @@ from 1Mpc -> 20Mpc in 5 equally spaced bins. It also conciders the galaxy and ra
 
 Example 2)
 
-In this example we calculate the anisotropic 2-point correlation function decomposed into 
+In this example we calculate the anisotropic 2-point correlation function decomposed into
 the usual sigma (perpendicular) and pi (parallel) space. This is done in 10x10 bins from 0Mpc
 to 100Mpc in each coordinate.
 
@@ -218,10 +225,17 @@ to 100Mpc in each coordinate.
 
 Example 3)
 
-In this example we look at the 3-point correlation function with the triangular configuration 
+In this example we calculate the isotropic 2PCF with jackknife error estimation.
+The data is spatially partitioned into 3^3=27 jackknife regions for covariance estimation.
+
+../bin/2pcf -gal test.gal -ran test.ran -rmin 1.0 -rmax 50.0 -nbins 10 -out result3 -err jack -njk 3
+
+Example 4)
+
+In this example we look at the 3-point correlation function with the triangular configuration
 7Mpc<r1<8Mpc, 5Mpc<r2<6Mpc, and the 3rd side is explored in 8 bins equally spaced in cos(theta).
 
-../bin/3pcf -gal test.gal -ran test.ran -r1min 7 -r1max 8 -r2min 5 -r2max 6 -nbins 8 -wgt .true. -out result3
+../bin/3pcf -gal test.gal -ran test.ran -r1min 7 -r1max 8 -r2min 5 -r2max 6 -nbins 8 -wgt .true. -out result4
 
 
     **************
