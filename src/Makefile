@@ -28,11 +28,11 @@ MY_DIR=`basename ${PWD}`
 
 all:	2pcf 3pcf 3pcf_eq 3pcf_all
 
-2pcf: 2pcf.o kdtree2.o extension.o
-	${F90} ${FLAGS} -o 2pcf 2pcf.o kdtree2.o extension.o ; \
+2pcf: 2pcf.o kdtree2.o extension.o jackknife.o
+	${F90} ${FLAGS} -o 2pcf 2pcf.o kdtree2.o extension.o jackknife.o ; \
 	mv $@ $(BINDIR)
 
-2pcf.o: kdtree2.o extension.o
+2pcf.o: kdtree2.o extension.o jackknife.o
 
 2pcf_mix: 2pcf_mix.o kdtree2.o extension.o
 	${F90} ${FLAGS} -o 2pcf_mix 2pcf_mix.o kdtree2.o extension.o ; \
