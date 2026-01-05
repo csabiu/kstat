@@ -1,6 +1,7 @@
 program TwoPCF
   use kdtree2_module
   use kdtree2_precision_module
+  use jackknife_module
   implicit none
   
 #ifdef MPI
@@ -26,6 +27,7 @@ program TwoPCF
   real(kdkind) :: aux,dr,odr,theta,var
   logical :: wgt,logbins,proj,resample,dosigpi,dotpcf,doap,saveran,loadran,readjk,marked
   CHARACTER(LEN=100) :: resample_method,ISOFLAG,DECOMP
+  integer :: Njkdiv  ! Number of jackknife divisions per dimension
   integer :: myid , ntasks , ierr
   real(kdkind), parameter :: pival=3.14159265358979323846d0
   real(kdkind), allocatable :: av(:),sigma(:),delta(:,:),cov(:,:),Qmatrix(:,:)
@@ -103,9 +105,11 @@ if(myid==master) print*,'Calculating the anisotropic correlation function decomp
 
   call allocate_arrays_sig_pi()
 
-if(resample) then 
+if(resample) then
     if(readjk) then
-        continue 
+        continue  ! Region IDs already read from input files
+    elseif(resample_method=='jack') then
+        call jackknifer()
     else
         call bootstrapper()
     endif
@@ -363,9 +367,11 @@ allocate(v4(d))
 
 call allocate_arrays_ap_test()
   
-if(resample) then 
+if(resample) then
     if(readjk) then
-        continue
+        continue  ! Region IDs already read from input files
+    elseif(resample_method=='jack') then
+        call jackknifer()
     else
         call bootstrapper()
     endif
@@ -625,7 +631,9 @@ call allocate_arrays_2pcf()
 if(resample) then
     if(readjk) then
         if(maxval(boot).ne.Nresample) stop "why is boot samples not equal to number of resamples?!"
-        continue   
+        continue  ! Region IDs already read from input files
+    elseif(resample_method=='jack') then
+        call jackknifer()
     else
         call bootstrapper()
     endif
@@ -959,9 +967,12 @@ subroutine parseOptions ()
             if(myid==master) print*," I will calculate the statistical covariance"
             if(myid==master) print*," I will ",trim(resample_method)," the data for covariance"
             if (trim(arg)=='read') readjk=.true.
-         case('-nerr') 
+         case('-nerr')
             read (arg,*) Nresample
             if(myid==master) print*," Using ", Nresample," resamples for the statistical covariance."
+         case('-njk')
+            read (arg,*) Njkdiv
+            if(myid==master) print*," Using ", Njkdiv," jackknife divisions per dimension."
          case('-RR')        
             ranfile = trim(arg)
             inquire (file=ranfile,exist=lexist)
@@ -1036,12 +1047,17 @@ print*,'                If file exists, then the RR counting will be skipped (sa
 print*,'                If it does not exist, the file will be created for future use.'
 print*,'                Consider using this option if you are doing Monte Carlo runs with same random catalogue.' 
 print*,''
-print*,'        ERR  =  The error treatment, "boot" will create bootstrap samples and use them to construct '
-print*,'                a covariance estimation. "jack" will create jackknife samples (NOT IMPLEMENTED YET)'
-print*,'                "read" will read the error subsample from the data, expected last column (integer!)'
+print*,'        ERR  =  The error treatment:'
+print*,'                "boot" - create bootstrap samples for covariance estimation'
+print*,'                "jack" - create jackknife samples using spatial partitioning'
+print*,'                "read" - read error subsample from data file, expected last column (integer!)'
 print*,''
-print*,'       NERR  =  Number of jackknife or bootstrap samples to create. Covariance and correlation '
-print*,'                coefficients contained within the file covariance.out'
+print*,'       NERR  =  Number of bootstrap samples to create (only used with -err boot).'
+print*,'                Covariance and correlation coefficients contained within covariance.out'
+print*,''
+print*,'        NJK  =  Number of jackknife divisions per dimension (only used with -err jack).'
+print*,'                Total regions = NJK^D where D is dimensionality (2 for proj, 3 otherwise).'
+print*,'                Default is 3, giving 27 regions for 3D or 9 regions for 2D.'
 print*,''
 print*,'       MKD    = Logical to define if marked statistics should be used.'
 print*,'                Possible values: .true.  OR  .false.'
@@ -1055,10 +1071,23 @@ subroutine check_params()
     if(nbins<=0) stop "Nbins <= 1 , seems odd. I will stop now ;)"
     if(ntbin<=0) stop "Ntbins <= 1, seems odd. I will stop now ;)"
     if(ISOFLAG=='ANISO'.and.(decomp.ne.'SIGPI'.and.decomp.ne.'SMU')) stop "Unknown Decomposition, seems odd. I will stop now ;)"
-    if(resample_method=='jack') stop "Jackknife not yet implemented, you will have to JK sample yourself and use the read option."
     if(resample.and.(loadran.or.saveran)) stop "Option conflict: resampling and loading/saving random cannot work together."
-    if(resample .and. Nresample.le.1) stop "Need more than one resample. Change Nerr on input. I will stop now."
-    
+
+    ! For jackknife mode, calculate Nresample from Njkdiv
+    if(resample_method=='jack') then
+        if(proj) then
+            ! 2D case
+            Nresample = Njkdiv * Njkdiv
+            if(myid==master) print*,' Jackknife mode: ', Njkdiv, ' divisions per dimension =', Nresample, ' regions (2D)'
+        else
+            ! 3D case
+            Nresample = Njkdiv * Njkdiv * Njkdiv
+            if(myid==master) print*,' Jackknife mode: ', Njkdiv, ' divisions per dimension =', Nresample, ' regions (3D)'
+        endif
+    endif
+
+    if(resample .and. Nresample.le.1) stop "Need more than one resample. Change Nerr or Njk on input. I will stop now."
+
   end subroutine check_params
 
 subroutine default_params()
@@ -1074,6 +1103,7 @@ subroutine default_params()
   rmin=0.0
   rmax=0.0
   Nresample=1
+  Njkdiv=3  ! Default: 3 divisions per dimension (27 regions for 3D, 9 for 2D)
   ISOFLAG='ISO'
   readjk=.false.
   marked=.false.
@@ -1363,6 +1393,33 @@ real(kdkind):: ran
 
 return
 end subroutine bootstrapper
+
+subroutine jackknifer()
+! Assign jackknife regions to all points using the jackknife module
+! This replaces the functionality of the jk.sh shell script
+implicit none
+integer :: Ndim
+
+    ! Determine dimensionality
+    if(proj) then
+        Ndim = 2
+    else
+        Ndim = 3
+    endif
+
+    if(myid==master) print*,' Assigning jackknife regions with', Njkdiv, 'divisions in', Ndim, 'dimensions'
+
+    ! Call the jackknife module to assign regions
+    call jackknife_2pcf(my_array, Ndata, Nrand, Njkdiv, Ndim, boot)
+
+    if(myid==master) then
+        print*,' Jackknife assignment complete.'
+        print*,'   Min region ID:', minval(boot)
+        print*,'   Max region ID:', maxval(boot)
+    endif
+
+return
+end subroutine jackknifer
 
 subroutine mpi_collect()
 implicit none

@@ -1,0 +1,21 @@
+# Compiled binaries (except shell scripts)
+bin/2pcf
+bin/3pcf
+bin/3pcf_eq
+bin/3pcf_all
+bin/2pcf_mix
+bin/graph
+bin/add_fiber
+bin/velocity
+
+# Object files and Fortran modules
+*.o
+*.mod
+
+# Test output files
+tests/*.dat
+tests/*.jk
+tests/test_jackknife
+covariance.out
+jk.txt
+result.txt
