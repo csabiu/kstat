@@ -54,7 +54,7 @@ echo number of lines: $total_lines
 echo lines per file: $lines_per_file
 
 #######################################################################
-split -d --lines=${lines_per_file} new.txt.sort firstsplit.
+split -d -l ${lines_per_file} new.txt.sort firstsplit.
 echo performing x-axis split....
 n=0
 while [ $n -le $((num_files - 1)) ]
@@ -73,7 +73,7 @@ total_lines=$(wc -l < firstsplit2.${n}.sort)
 
 ((lines_per_file = (total_lines + num_files - 1) / num_files))
 
-split -d --lines=${lines_per_file} firstsplit2.${n}.sort secondsplit.${n}.
+split -d -l ${lines_per_file} firstsplit2.${n}.sort secondsplit.${n}.
 m=0
 while [ $m -le $((num_files - 1)) ]
 do
@@ -99,7 +99,7 @@ total_lines=$(wc -l < secondsplit2.${n}.${m}.sort)
 
 ((lines_per_file = (total_lines + num_files - 1) / num_files))
 
-split -d --lines=${lines_per_file} secondsplit2.${n}.${m}.sort thirdsplit.${n}.${m}.
+split -d -l ${lines_per_file} secondsplit2.${n}.${m}.sort thirdsplit.${n}.${m}.
 p=0
 while [ $p -le $((num_files - 1)) ]
 do
