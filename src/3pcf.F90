@@ -1,6 +1,7 @@
 program ThreePCF
   use kdtree2_module
   use kdtree2_precision_module
+  use jackknife_module
   implicit none
 #ifdef MPI
 	include 'mpif.h'
@@ -10,7 +11,7 @@ program ThreePCF
   real(kdkind), allocatable ::  v1(:),v2(:)
   type(kdtree2), pointer :: tree
 
-  real(kdkind), allocatable :: Zddd(:,:,:),Zddr(:,:,:),Zdrr(:,:,:),Zrrr(:,:,:),crap(:,:,:), wgt1(:)
+  real(kdkind), allocatable :: Zddd(:,:,:,:),Zddr(:,:,:,:),Zdrr(:,:,:,:),Zrrr(:,:,:,:),crap(:,:,:,:), wgt1(:)
   real(kdkind), allocatable :: Zdd(:,:),Zdr(:,:),Zrr(:,:),crap2(:,:)
   real(kdkind) :: ndd,ndr,nrr,dist,r1min,r1max,r2min,r2max
   integer :: k, i, j, l,d,chunk,nbins,ind,mu1,mu2
@@ -18,9 +19,12 @@ program ThreePCF
   type(kdtree2_result),allocatable :: resultsb(:)
   integer   ::  Ndata,Nrand,nn1,nn2,nnpairs,mm1,mm2
   real(kdkind)  :: aux,rmin,rmax,dr,odr,theta,odt,mid1,mid2
-  logical :: wgt,saveran,loadran,RSD
-  CHARACTER(LEN=2000) :: outfile,ranfile
+  logical :: wgt,saveran,loadran,RSD,resample,readjk
+  CHARACTER(LEN=2000) :: outfile,ranfile,resample_method
   integer :: myid , ntasks , ierr, nmu
+  integer :: Nresample, Njkdiv
+  integer, allocatable :: boot(:)
+  real(kdkind), allocatable :: av(:,:,:),sigma(:,:,:),delta(:,:,:,:),cov(:,:,:,:,:,:)
 #ifdef MPI 
   integer , dimension( MPI_STATUS_SIZE ) :: status
 #endif
@@ -43,6 +47,14 @@ ntasks=1
 
   if(myid==master) print*,'reading options'
   call parseOptions()
+
+  ! For jackknife mode, calculate Nresample from Njkdiv
+  if(resample_method=='jack') then
+      Nresample = Njkdiv * Njkdiv * Njkdiv  ! Always 3D for 3PCF
+      if(myid==master) print*,' Jackknife mode: ', Njkdiv, ' divisions per dimension =', Nresample, ' regions (3D)'
+  endif
+
+  if(resample .and. Nresample.le.1) stop "Need more than one resample. Change Nerr or Njk on input."
 
  allocate(bins(nbins+2,2))
  allocate(tbins(nbins,2))
@@ -68,6 +80,10 @@ ntasks=1
     Allocate(wgt1(Ndata+Nrand))
   endif
 
+  if (resample) then
+    allocate(boot(Ndata+Nrand))
+  endif
+
   allocate(v1(d))
   allocate(v2(d))
 
@@ -80,6 +96,17 @@ tree => kdtree2_create(my_array,sort=.true.,rearrange=.true.)     ! this is how 
   call allocate_arrays()
 
 call make_bins()
+
+! Assign jackknife regions if needed
+if(resample) then
+    if(readjk) then
+        continue  ! Region IDs already read from input files
+    elseif(resample_method=='jack') then
+        call jackknifer()
+    else
+        call bootstrapper()
+    endif
+endif
 
    if(myid==master) print*,'beginning data loop....'
 
@@ -107,26 +134,62 @@ do i=1,Ndata,1
 
           call triplet_bin( )
         
-          if(resultsb(j)%idx <= Ndata) then 
-          
+          if(resultsb(j)%idx <= Ndata) then
+
             if(resultsb(k)%idx <= Ndata) then
-            
+
               if ( wgt ) then
-                Zddd(ind,mu1,mu2)=Zddd(ind,mu1,mu2)+(wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                if(resample) then
+                  Zddd(ind,mu1,mu2,boot(resultsb(j)%idx))=Zddd(ind,mu1,mu2,boot(resultsb(j)%idx))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                  Zddd(ind,mu1,mu2,boot(resultsb(k)%idx))=Zddd(ind,mu1,mu2,boot(resultsb(k)%idx))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                  Zddd(ind,mu1,mu2,boot(i))=Zddd(ind,mu1,mu2,boot(i))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                else
+                  Zddd(ind,mu1,mu2,1)=Zddd(ind,mu1,mu2,1)+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                endif
               else
-                Zddd(ind,mu1,mu2)=Zddd(ind,mu1,mu2)+1.d0
+                if(resample) then
+                  Zddd(ind,mu1,mu2,boot(resultsb(j)%idx))= &
+                      Zddd(ind,mu1,mu2,boot(resultsb(j)%idx))+1.d0
+                  Zddd(ind,mu1,mu2,boot(resultsb(k)%idx))= &
+                      Zddd(ind,mu1,mu2,boot(resultsb(k)%idx))+1.d0
+                  Zddd(ind,mu1,mu2,boot(i))=Zddd(ind,mu1,mu2,boot(i))+1.d0
+                else
+                  Zddd(ind,mu1,mu2,1)=Zddd(ind,mu1,mu2,1)+1.d0
+                endif
               endif
 
             else
 
               if ( wgt ) then
-                Zddr(ind,mu1,mu2)=Zddr(ind,mu1,mu2)+(wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                if(resample) then
+                  Zddr(ind,mu1,mu2,boot(resultsb(j)%idx))=Zddr(ind,mu1,mu2,boot(resultsb(j)%idx))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                  Zddr(ind,mu1,mu2,boot(resultsb(k)%idx))=Zddr(ind,mu1,mu2,boot(resultsb(k)%idx))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                  Zddr(ind,mu1,mu2,boot(i))=Zddr(ind,mu1,mu2,boot(i))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                else
+                  Zddr(ind,mu1,mu2,1)=Zddr(ind,mu1,mu2,1)+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                endif
               else
-                Zddr(ind,mu1,mu2)=Zddr(ind,mu1,mu2)+1.d0
+                if(resample) then
+                  Zddr(ind,mu1,mu2,boot(resultsb(j)%idx))= &
+                      Zddr(ind,mu1,mu2,boot(resultsb(j)%idx))+1.d0
+                  Zddr(ind,mu1,mu2,boot(resultsb(k)%idx))= &
+                      Zddr(ind,mu1,mu2,boot(resultsb(k)%idx))+1.d0
+                  Zddr(ind,mu1,mu2,boot(i))=Zddr(ind,mu1,mu2,boot(i))+1.d0
+                else
+                  Zddr(ind,mu1,mu2,1)=Zddr(ind,mu1,mu2,1)+1.d0
+                endif
               endif
             endif
 
-          else 
+          else
 
             if(resultsb(k)%idx <=Ndata) then
 !              if ( wgt ) then
@@ -135,13 +198,31 @@ do i=1,Ndata,1
 !                Zddr(ind)=Zddr(ind)+1.d0
 !              endif
                 continue
-                
+
             else
 
               if ( wgt ) then
-                Zdrr(ind,mu1,mu2)=Zdrr(ind,mu1,mu2)+(wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                if(resample) then
+                  Zdrr(ind,mu1,mu2,boot(resultsb(j)%idx))=Zdrr(ind,mu1,mu2,boot(resultsb(j)%idx))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                  Zdrr(ind,mu1,mu2,boot(resultsb(k)%idx))=Zdrr(ind,mu1,mu2,boot(resultsb(k)%idx))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                  Zdrr(ind,mu1,mu2,boot(i))=Zdrr(ind,mu1,mu2,boot(i))+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                else
+                  Zdrr(ind,mu1,mu2,1)=Zdrr(ind,mu1,mu2,1)+ &
+                      (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                endif
               else
-                Zdrr(ind,mu1,mu2)=Zdrr(ind,mu1,mu2)+1.d0
+                if(resample) then
+                  Zdrr(ind,mu1,mu2,boot(resultsb(j)%idx))= &
+                      Zdrr(ind,mu1,mu2,boot(resultsb(j)%idx))+1.d0
+                  Zdrr(ind,mu1,mu2,boot(resultsb(k)%idx))= &
+                      Zdrr(ind,mu1,mu2,boot(resultsb(k)%idx))+1.d0
+                  Zdrr(ind,mu1,mu2,boot(i))=Zdrr(ind,mu1,mu2,boot(i))+1.d0
+                else
+                  Zdrr(ind,mu1,mu2,1)=Zdrr(ind,mu1,mu2,1)+1.d0
+                endif
               endif
 
             endif
@@ -242,9 +323,27 @@ do i=Ndata+1,Ndata+Nrand,1
             continue
          else !RRR
             if ( wgt ) then
-               Zrrr(ind,mu1,mu2)=Zrrr(ind,mu1,mu2)+(wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
-             else
-               Zrrr(ind,mu1,mu2)=Zrrr(ind,mu1,mu2)+1.d0
+              if(resample) then
+                Zrrr(ind,mu1,mu2,boot(resultsb(j)%idx))=Zrrr(ind,mu1,mu2,boot(resultsb(j)%idx))+ &
+                    (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                Zrrr(ind,mu1,mu2,boot(resultsb(k)%idx))=Zrrr(ind,mu1,mu2,boot(resultsb(k)%idx))+ &
+                    (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+                Zrrr(ind,mu1,mu2,boot(i))=Zrrr(ind,mu1,mu2,boot(i))+ &
+                    (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+              else
+                Zrrr(ind,mu1,mu2,1)=Zrrr(ind,mu1,mu2,1)+ &
+                    (wgt1(resultsb(j)%idx)*wgt1(resultsb(k)%idx)*wgt1(i))
+              endif
+            else
+              if(resample) then
+                Zrrr(ind,mu1,mu2,boot(resultsb(j)%idx))= &
+                    Zrrr(ind,mu1,mu2,boot(resultsb(j)%idx))+1.d0
+                Zrrr(ind,mu1,mu2,boot(resultsb(k)%idx))= &
+                    Zrrr(ind,mu1,mu2,boot(resultsb(k)%idx))+1.d0
+                Zrrr(ind,mu1,mu2,boot(i))=Zrrr(ind,mu1,mu2,boot(i))+1.d0
+              else
+                Zrrr(ind,mu1,mu2,1)=Zrrr(ind,mu1,mu2,1)+1.d0
+              endif
             endif
          endif
        endif
@@ -306,20 +405,57 @@ do i=1,nbins+2
   crap2(i,1)=(Zdd(i,1)-2.0*Zdr(i,1)+Zrr(i,1))/Zrr(i,1)
 enddo
 
+! Compute jackknife errors if resampling is enabled
+if(resample) then
+    do i=1,nbins
+        do j=1,nmu
+            do k=1,nmu
+                ! Calculate mean across all regions
+                av(i,j,k)=sum(Zddd(i,j,k,1:Nresample)-Zddr(i,j,k,1:Nresample)+Zdrr(i,j,k,1:Nresample)-Zrrr(i,j,k,1:Nresample))
+                av(i,j,k)=av(i,j,k)/sum(Zrrr(i,j,k,1:Nresample))
+
+                ! Calculate jackknife variance
+                sigma(i,j,k)=0.0
+                do l=1,Nresample
+                    ! Leave-one-out estimator
+                    crap(i,j,k,l)=(sum(Zddd(i,j,k,1:Nresample))-Zddd(i,j,k,l)- &
+                                  (sum(Zddr(i,j,k,1:Nresample))-Zddr(i,j,k,l))+ &
+                                  (sum(Zdrr(i,j,k,1:Nresample))-Zdrr(i,j,k,l))- &
+                                  (sum(Zrrr(i,j,k,1:Nresample))-Zrrr(i,j,k,l)))/ &
+                                  (sum(Zrrr(i,j,k,1:Nresample))-Zrrr(i,j,k,l))
+                    sigma(i,j,k)=sigma(i,j,k)+(crap(i,j,k,l)-av(i,j,k))**2.0
+                enddo
+                ! Jackknife error formula
+                sigma(i,j,k)=sqrt(sigma(i,j,k)*(float(Nresample)-1.)/float(Nresample))
+            enddo
+        enddo
+    enddo
+endif
+
 open(11,file=outfile,status='unknown')
-write(11,*)'# r3_min, r3_max, mu1_min,mu1_max, mu2_min, mu2_max, DDD, DDR, DRR, &
+if(resample) then
+  write(11,*)'# r3_min, r3_max, mu1_min, mu1_max, mu2_min, mu2_max, DDD, DDR, DRR,  RRR, zeta, zeta_error'
+else
+  write(11,*)'# r3_min, r3_max, mu1_min,mu1_max, mu2_min, mu2_max, DDD, DDR, DRR, &
 & RRR, DD, DR, RR, xi_1, xi_2, xi_3, zeta, Q'
+endif
+
 do i=1,nbins
     do j=1,nmu
         do k=1,nmu
-        crap(i,j,k)=(Zddd(i,j,k)-1.0*Zddr(i,j,k)+1.0*Zdrr(i,j,k) - Zrrr(i,j,k))/Zrrr(i,j,k)
-
-        write(11,'(12(e14.7,1x))') bins(i+2,1),bins(i+2,2), (j-1)/odr,j/odr, (k-1)/odr, k/odr,Zddd(i,j,k), &
-        Zddr(i,j,k), Zdrr(i,j,k), Zrrr(i,j,k), (Zddd(i,j,k)-Zddr(i,j,k)+Zdrr(i,j,k)-Zrrr(i,j,k))/Zrrr(i,j,k),&
-        (Zddd(i,j,k)/Zrrr(i,j,k)) - 1.0
-
- print*,acos(tbins(i,1)),acos(tbins(i,2)),bins(1,1),bins(2,1),j,k,crap(i,j,k)
- 
+        if(resample) then
+            write(11,'(12(e14.7,1x))') bins(i+2,1),bins(i+2,2), (j-1)/odr,j/odr, (k-1)/odr, k/odr, &
+                sum(Zddd(i,j,k,1:Nresample)),sum(Zddr(i,j,k,1:Nresample)),sum(Zdrr(i,j,k,1:Nresample)), &
+                sum(Zrrr(i,j,k,1:Nresample)), av(i,j,k), sigma(i,j,k)
+            print*,acos(tbins(i,1)),acos(tbins(i,2)),bins(1,1),bins(2,1),j,k,av(i,j,k),sigma(i,j,k)
+        else
+            crap(i,j,k,1)=(Zddd(i,j,k,1)-1.0*Zddr(i,j,k,1)+1.0*Zdrr(i,j,k,1) - Zrrr(i,j,k,1))/Zrrr(i,j,k,1)
+            write(11,'(12(e14.7,1x))') bins(i+2,1),bins(i+2,2), (j-1)/odr,j/odr, (k-1)/odr, k/odr, &
+                Zddd(i,j,k,1), Zddr(i,j,k,1), Zdrr(i,j,k,1), Zrrr(i,j,k,1), &
+                (Zddd(i,j,k,1)-Zddr(i,j,k,1)+Zdrr(i,j,k,1)-Zrrr(i,j,k,1))/Zrrr(i,j,k,1), &
+                (Zddd(i,j,k,1)/Zrrr(i,j,k,1)) - 1.0
+            print*,acos(tbins(i,1)),acos(tbins(i,2)),bins(1,1),bins(2,1),j,k,crap(i,j,k,1)
+        endif
 
 enddo
 enddo
@@ -386,10 +522,10 @@ contains
             read (arg,*) nbins
          case ('-nrsd')
             read (arg,*) nmu
-            RSD=.true.            
+            RSD=.true.
          case ('-wgt')
-            wgt=.true.     
-         case('-RR')        
+            wgt=.true.
+         case('-RR')
             ranfile = trim(arg)
             inquire (file=ranfile,exist=lexist)
             if(lexist) then
@@ -398,7 +534,24 @@ contains
             else
                write(*,*) " Random count file does not exist. It will be created!"
                saveran=.true.
-            end if     
+            end if
+         case ('-err')
+             if (trim(arg)=='boot' .or. trim(arg)=='jack' .or. trim(arg)=='read') then
+                resample_method=trim(arg)
+                resample=.true.
+                if(myid==master) print*," Will calculate statistical covariance using ", trim(resample_method)
+                if (trim(arg)=='read') readjk=.true.
+             else
+                print*,'-err flag requires either "boot" for bootstrap, "jack" for jackknife,'
+                print*,' or "read" for reading error subsample from data file, expected last column.'
+                stop
+            endif
+         case('-nerr')
+            read (arg,*) Nresample
+            if(myid==master) print*," Using ", Nresample," resamples for the statistical covariance."
+         case('-njk')
+            read (arg,*) Njkdiv
+            if(myid==master) print*," Using ", Njkdiv," jackknife divisions per dimension."
          case ('-help')
             call print_help
       stop
@@ -420,8 +573,10 @@ print*,'CALLING SEQUENCE:'
 print*,'      3pcf [-gal gal_file] [-ran ran_file] [-out out_file] [-wgt WGT]'
 print*,'           [-r1min Rmin] [-r1max Rmax] [-r2min Rmin] [-r2max Rmax]'
 print*,'           [-nbins Nbins] [-RR RR_Counts] [-nrsd Nmu]'
+print*,'           [-err ERR] [-nerr NERR] [-njk NJK]'
 print*,' '
 print*,'      eg: 3pcf -gal dr9.gal -ran dr9.ran -r1min 10.0 -r1max 12.0 -r2min 5.0 -r2max 6.0 -nbins 10'
+print*,'      eg: 3pcf -gal dr9.gal -ran dr9.ran -r1min 10.0 -r1max 12.0 -r2min 5.0 -r2max 6.0 -nbins 10 -err jack -njk 4'
 print*,' '
 print*,'INPUTS:'
 print*,'       gal_file/ranfile = strings containing the name of a 3/4 column point file'
@@ -442,10 +597,22 @@ print*,' '
 print*,' RR_Counts = string containing the name of a file regarding RR data counts.  '
 print*,'             If file exists, then the RR counting will be skipped (saveing CPU time)'
 print*,'             If it does not exist, the file will be created for future use.'
-print*,'             Consider using this option if you are doing Monte Carlo runs with same random catalogue.' 
+print*,'             Consider using this option if you are doing Monte Carlo runs with same random catalogue.'
 print*,' '
 print*,'      Nmu = the number of bins [INTEGER] to define the RSD parameters {theta_1, theta_2}'
 print*,'             Default: 1 (isotropic case) if Nmu > 1 - anisotropic clustering'
+print*,' '
+print*,'       ERR = The error treatment:'
+print*,'             "boot" - create bootstrap samples for covariance estimation'
+print*,'             "jack" - create jackknife samples using spatial partitioning'
+print*,'             "read" - read error subsample from data file, expected last column (integer!)'
+print*,' '
+print*,'      NERR = Number of bootstrap samples to create (only used with -err boot).'
+print*,'             Covariance and correlation coefficients contained within covariance.out'
+print*,' '
+print*,'       NJK = Number of jackknife divisions per dimension (only used with -err jack).'
+print*,'             Total regions = NJK^3 (always 3D for 3PCF).'
+print*,'             Default is 3, giving 27 regions.'
 print*,' '
    end subroutine print_help
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -513,11 +680,11 @@ subroutine allocate_arrays ()
   implicit none
   allocate(resultsb(Ndata+Nrand))
 
-  allocate(Zddd(nbins,nmu,nmu))
-  allocate(Zddr(nbins,nmu,nmu))
-  allocate(Zdrr(nbins,nmu,nmu))
-  allocate(Zrrr(nbins,nmu,nmu))
-  allocate(crap(nbins,nmu,nmu))
+  allocate(Zddd(nbins,nmu,nmu,Nresample))
+  allocate(Zddr(nbins,nmu,nmu,Nresample))
+  allocate(Zdrr(nbins,nmu,nmu,Nresample))
+  allocate(Zrrr(nbins,nmu,nmu,Nresample))
+  allocate(crap(nbins,nmu,nmu,Nresample))
 
   crap=0.0d0
   Zddd=0.0d0
@@ -535,6 +702,12 @@ subroutine allocate_arrays ()
   Zdr(:,:)=0d0
   Zrr(:,:)=0d0
 
+  if(resample) then
+    allocate(av(nbins,nmu,nmu))
+    allocate(sigma(nbins,nmu,nmu))
+    allocate(delta(Nresample,nbins,nmu,nmu))
+    allocate(cov(nbins,nmu,nmu,nbins,nmu,nmu))
+  endif
 
 end subroutine allocate_arrays
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -542,7 +715,7 @@ subroutine mpi_collect()
 #ifdef MPI
   if(myid==master) crap=0.d0
 call MPI_Barrier(MPI_COMM_WORLD,ierr)
-call MPI_REDUCE( Zddd, crap, nbins*nmu*nmu, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
+call MPI_REDUCE( Zddd, crap, nbins*nmu*nmu*Nresample, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
 if ( myid == master ) then !in master thread
 Zddd=crap
 endif
@@ -550,7 +723,7 @@ call MPI_Barrier(MPI_COMM_WORLD,ierr)
 
 if(myid==master) crap=0.d0
 call MPI_Barrier(MPI_COMM_WORLD,ierr)
-call MPI_REDUCE( Zddr, crap, nbins*nmu*nmu, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
+call MPI_REDUCE( Zddr, crap, nbins*nmu*nmu*Nresample, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
 if ( myid == master ) then !in master thread
 Zddr=crap
 endif
@@ -558,7 +731,7 @@ call MPI_Barrier(MPI_COMM_WORLD,ierr)
 
 if(myid==master) crap=0.d0
 call MPI_Barrier(MPI_COMM_WORLD,ierr)
-call MPI_REDUCE( Zdrr, crap, nbins*nmu*nmu, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
+call MPI_REDUCE( Zdrr, crap, nbins*nmu*nmu*Nresample, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
 if ( myid == master ) then !in master thread
 Zdrr=crap
 endif
@@ -566,7 +739,7 @@ call MPI_Barrier(MPI_COMM_WORLD,ierr)
 
 if(myid==master) crap=0.d0
 call MPI_Barrier(MPI_COMM_WORLD,ierr)
-call MPI_REDUCE( Zrrr, crap, nbins*nmu*nmu, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
+call MPI_REDUCE( Zrrr, crap, nbins*nmu*nmu*Nresample, MPI_DOUBLE_PRECISION,MPI_SUM, master, MPI_COMM_WORLD, ierr )
 if ( myid == master ) then !in master thread
 Zrrr=crap
 endif
@@ -756,8 +929,53 @@ subroutine default_params()
   outfile='result.txt'
   loadran=.false.
   saveran=.false.
-  
+  resample=.false.
+  readjk=.false.
+  resample_method=''
+  Nresample=1
+  Njkdiv=3
+
 end subroutine default_params
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+subroutine jackknifer()
+! Assign jackknife regions to all points using the jackknife module
+! This replaces the functionality of the jk.sh shell script
+implicit none
+integer :: Ndim
+
+    Ndim = 3  ! Always 3D for 3PCF
+
+    if(myid==master) print*,' Assigning jackknife regions with', Njkdiv, 'divisions in', Ndim, 'dimensions'
+
+    ! Call the jackknife module to assign regions
+    call jackknife_2pcf(my_array, Ndata, Nrand, Njkdiv, Ndim, boot)
+
+    if(myid==master) then
+        print*,' Jackknife assignment complete.'
+        print*,' Region range:', minval(boot), 'to', maxval(boot)
+        print*,' Number of unique regions:', Nresample
+    endif
+
+return
+end subroutine jackknifer
+
+subroutine bootstrapper()
+! Assign random bootstrap samples to all points
+implicit none
+real(kdkind) :: ran
+
+    if(myid==master) print*,' Assigning bootstrap samples...'
+
+    do i=1,Ndata+Nrand
+      call random_number(ran)
+      boot(i)=floor(ran*Nresample)+1
+    enddo
+
+    if(myid==master) print*,' Bootstrap assignment complete.'
+
+return
+end subroutine bootstrapper
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 subroutine deallocate_arrays()

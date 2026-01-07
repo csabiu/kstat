@@ -40,11 +40,11 @@ all:	2pcf 3pcf 3pcf_eq 3pcf_all
 
 2pcf_mix.o: kdtree2.o extension.o
 
-3pcf: 3pcf.o kdtree2.o extension.o
-	${F90} ${FLAGS} -o 3pcf 3pcf.o kdtree2.o extension.o ; \
+3pcf: 3pcf.o kdtree2.o extension.o jackknife.o
+	${F90} ${FLAGS} -o 3pcf 3pcf.o kdtree2.o extension.o jackknife.o ; \
 	mv $@ $(BINDIR)
 
-3pcf.o: kdtree2.o
+3pcf.o: kdtree2.o extension.o jackknife.o
 
 3pcf_eq: 3pcf_eq.o kdtree2.o extension.o
 	${F90} ${FLAGS} -o 3pcf_eq 3pcf_eq.o kdtree2.o extension.o ; \
